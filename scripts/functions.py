@@ -18,6 +18,7 @@ from osgeo import ogr
 from shapely.wkb import loads
 from rasterstats import point_query
 from itertools import product
+from scipy import ndimage
 
 sys.path.append(os.path.join( '..'))
 from scripts.utils import load_config,get_num,int2date
@@ -55,7 +56,8 @@ def region_exposure(region,include_storms=True,event_set=False,sens_analysis_sto
     area_poly = os.path.join(data_path,country,'NUTS3_POLY','{}.poly'.format(region))
     area_pbf = os.path.join(data_path,country,'NUTS3_OSM','{}.osm.pbf'.format(region))
 
-    if (region == 'UKN01') | (region == 'UKN02') | (region == 'UKN03') | (region == 'UKN04') | (region == 'UKN05'):
+#    if (region == 'UKN01') | (region == 'UKN02') | (region == 'UKN03') | (region == 'UKN04') | (region == 'UKN05'):
+    if region in ['UKN0{}'.format(x) for x in ['A','B','C','D','E','F','G','6','7','8','9']]:
         osm_path = os.path.join(data_path,'OSM','IE.osm.pbf') 
     
     clip_osm(data_path,osm_path,area_poly,area_pbf)   
@@ -80,6 +82,7 @@ def region_exposure(region,include_storms=True,event_set=False,sens_analysis_sto
 
     # Determine centroid
     gdf_table["centroid"] = gdf_table.geometry.centroid
+    gdf_table["centroid_epsg4326"] = gdf_table.geometry.to_crs('EPSG:4326').centroid
 
     nuts_eu = gpd.read_file(os.path.join(data_path,'input_data','NUTS3_ETRS.shp'))
 
@@ -123,13 +126,14 @@ def region_exposure(region,include_storms=True,event_set=False,sens_analysis_sto
     # Obtain storm values for event set storms
     elif (include_storms == True) & (event_set == True):
         #geoms = [mapping(nuts_eu.loc[nuts_eu['NUTS_ID']==region].to_crs({'init': 'epsg:4326'}).geometry.envelope.buffer(0.1).values[0])]
-        storm_list = get_event_storm_list(data_path)[:10]
+        storm_list = get_event_storm_list(data_path)[:]
         for outrast_storm in tqdm(storm_list,total=len(storm_list),desc=region):
-            storm_name = str(int2date(get_num(outrast_storm[-24:].split('_')[0][:-4])))
+#            storm_name = str(int2date(get_num(outrast_storm[-24:].split('_')[0][:-4])))
+            storm_name = outrast_storm.split('/')[-1].split('.')[0]
             with rio.open(outrast_storm) as src:
                 out_image = src.read(1)
                 out_transform = src.transform
-                gdf_table[storm_name] = gdf_table.centroid.apply(lambda x: get_raster_value(x,out_image,out_transform))
+                gdf_table[storm_name] = gdf_table.centroid_epsg4326.apply(lambda x: get_raster_value(x,out_image,out_transform))
 
     if save == True:
         df_exposure = pd.DataFrame(gdf_table)
@@ -162,9 +166,11 @@ def region_losses(region,storm_event_set=False,sample=(5, 0,95,20,80)):
     if storm_event_set == False:
         storm_list = get_storm_list(data_path)
         storm_name_list = [str(int2date(get_num(x[-23:].split('_')[0][:-2]))) for x in storm_list]
+
     else:
         storm_list = get_event_storm_list(data_path)
-        storm_name_list = [str(int2date(get_num(x[-24:].split('_')[0][:-4]))) for x in storm_list]
+        storm_name_list = [x.split('/')[-1].split('.')[0] for x in storm_list]
+#        storm_name_list = [str(int2date(get_num(x[-24:].split('_')[0][:-4]))) for x in storm_list]
 
     #load max dam
     max_dam = load_max_dam(data_path)
@@ -173,6 +179,9 @@ def region_losses(region,storm_event_set=False,sample=(5, 0,95,20,80)):
     curves = load_curves(data_path)
    
     output_table = region_exposure(region,include_storms=True,event_set=storm_event_set)
+    if output_table.empty:
+        print('No building info returned, exiting region')
+        return None
 
     no_storm_columns = list(set(output_table.columns).difference(list(storm_name_list)))
     write_output = pd.DataFrame(output_table[no_storm_columns])
@@ -444,7 +453,7 @@ def load_max_dam(data_path):
         *dataframe* -- pandas dataframe with maximum damages per landuse.
     """
 
-    return pd.read_excel(os.path.join(data_path,'input_data','max_dam2.xlsx'))
+    return pd.read_csv(os.path.join(data_path,'input_data','max_dam2.csv'))
 
 
 def load_curves(data_path):
@@ -598,7 +607,7 @@ def poly_files(data_path,country):
     wb_poly = gpd.read_file(os.path.join(data_path,'input_data','NUTS3_ETRS.shp'))
     
     # filter polygon file
-    country_poly = wb_poly.loc[(wb_poly['NUTS_ID'].apply(lambda x: x.startswith(country))) & (wb_poly['STAT_LEVL_']==3)]
+    country_poly = wb_poly.loc[(wb_poly['NUTS_ID'].apply(lambda x: x.startswith(country))) & (wb_poly['LEVL_CODE']==3)]
 
     country_poly.crs = {'init' :'epsg:3035'}
 
@@ -737,6 +746,7 @@ def get_raster_value(centroid,out_image,out_transform):
     Returns:
         *integer* -- raster value corresponding to location of centroid
     """
+
     return int(point_query(centroid,out_image,affine=out_transform,nodata=-9999,interpolate='nearest')[0] or 255)   
 
                     

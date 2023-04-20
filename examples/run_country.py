@@ -28,6 +28,6 @@ if __name__ == '__main__':
     create_folder_structure(data_path,country)
     
     # and estimate losses
-    losses(country, parallel = True, event_set = False,save=True)
+    losses(country, parallel = True, event_set = True,save=True)
     
     

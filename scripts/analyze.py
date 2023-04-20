@@ -156,6 +156,9 @@ def losses(country, parallel = True, event_set = False,save=True):
     #get list of regions for which we have poly files (should be all) 
     regions = os.listdir(os.path.join(data_path,country,'NUTS3_POLY'))
     regions = [x.split('.')[0] for x in regions]
+    #exclude reigons already run (should clear data path if re-running)
+    already_complete = [x.split('_')[0] for x in os.listdir(os.path.join(data_path,'output_risk',country))]
+    regions = [x for x in regions if not x in already_complete]
     
     if event_set == False:
         event_set = len(regions)*[False]
@@ -174,12 +177,12 @@ def losses(country, parallel = True, event_set = False,save=True):
         samples = len(regions)*[sample]
     
         if parallel == True:
-            with Pool(cpu_count()-2) as pool: 
+            with Pool(5) as pool: 
                 country_table = pool.starmap(region_losses,zip(regions,event_set,samples),chunksize=1) 
         else:
             country_table = []
             for region in regions:
-                country_table.append(region_losses(region,True))
+                country_table.append(region_losses(region,True,sample))
 
     if (save == True) & (event_set == False):
         gdf_table  = gpd.GeoDataFrame(pd.concat(country_table),crs='epsg:4326',geometry='geometry')
